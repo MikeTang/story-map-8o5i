@@ -33,12 +33,17 @@ interface Props {
   card: SceneCardData;
   onMove: (id: string, x: number, y: number) => void;
   onDelete?: (id: string) => void;
+  onUpdate?: (id: string, fields: Partial<Pick<SceneCardData, "title" | "description">>) => void;
 }
 
-export default function SceneCard({ card, onMove, onDelete }: Props) {
-  const [pos, setPos]         = useState({ x: card.x, y: card.y });
+export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
+  const [pos, setPos]           = useState({ x: card.x, y: card.y });
   const [dragging, setDragging] = useState(false);
   const [hovered, setHovered]   = useState(false);
+
+  // Track which field is being edited: null | "title" | "description"
+  const [editing, setEditing] = useState<"title" | "description" | null>(null);
+
   const dragOrigin = useRef<{
     ptrX: number;
     ptrY: number;
@@ -49,13 +54,57 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
   // Track whether the pointer actually moved (to distinguish click from drag)
   const didMove = useRef(false);
 
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const descRef  = useRef<HTMLParagraphElement>(null);
+
   // Sync position if parent updates the card data (e.g. initial load)
   useEffect(() => {
     setPos({ x: card.x, y: card.y });
   }, [card.x, card.y]);
 
+  // When editing starts, focus the element and place cursor at end
+  useEffect(() => {
+    if (editing === "title" && titleRef.current) {
+      const el = titleRef.current;
+      el.focus();
+      // Place caret at end
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } else if (editing === "description" && descRef.current) {
+      const el = descRef.current;
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+  }, [editing]);
+
+  // Commit a field value on blur
+  const commitEdit = useCallback(
+    (field: "title" | "description", el: HTMLElement) => {
+      const value = el.innerText.trim();
+      // Restore original if empty
+      if (!value) {
+        el.innerText = field === "title" ? card.title : card.description;
+      } else if (value !== (field === "title" ? card.title : card.description)) {
+        onUpdate?.(card.id, { [field]: value });
+      }
+      setEditing(null);
+    },
+    [card.id, card.title, card.description, onUpdate]
+  );
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // If already editing a field, let pointer events pass to that field
+      if (editing) return;
       if (e.button !== 0) return;
       e.currentTarget.setPointerCapture(e.pointerId);
       didMove.current = false;
@@ -67,7 +116,7 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
       };
       setDragging(true);
     },
-    [pos]
+    [pos, editing]
   );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
@@ -115,11 +164,11 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
         backgroundColor: COLOR_MAP[card.color],
         padding: "18px 14px 14px",
         borderRadius: 2,
-        cursor: dragging ? "grabbing" : "grab",
+        cursor: dragging ? "grabbing" : editing ? "default" : "grab",
         filter: shadow,
         transition: dragging ? "none" : "filter 0.15s ease",
-        zIndex: dragging ? 100 : hovered ? 10 : 1,
-        userSelect: "none",
+        zIndex: dragging ? 100 : editing ? 50 : hovered ? 10 : 1,
+        userSelect: editing ? "text" : "none",
         touchAction: "none",
       }}
     >
@@ -171,7 +220,7 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
       )}
 
       {/* Delete button — visible on hover, positioned top-right */}
-      {onDelete && hovered && !dragging && (
+      {onDelete && hovered && !dragging && !editing && (
         <button
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -214,14 +263,15 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
       >
         <span
           style={{
-            display: "inline-block",
             width: 20,
             height: 20,
             borderRadius: "50%",
             background: "rgba(0,0,0,0.12)",
-            fontSize: 11,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 10,
             fontWeight: 700,
-            lineHeight: "20px",
             textAlign: "center",
             color: "rgba(0,0,0,0.5)",
             fontFamily: "'Lato', sans-serif",
@@ -242,8 +292,37 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
         </span>
       </div>
 
-      {/* Title — Caveat handwritten font */}
+      {/* Title — Caveat handwritten font, double-click to edit */}
       <h3
+        ref={titleRef}
+        contentEditable={editing === "title"}
+        suppressContentEditableWarning
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          setEditing("title");
+        }}
+        onPointerDown={(e) => {
+          // If already editing this field, let browser handle selection
+          if (editing === "title") {
+            e.stopPropagation();
+            return;
+          }
+          // Otherwise let the card's drag handler take over (do nothing special)
+        }}
+        onBlur={(e) => {
+          if (editing === "title") commitEdit("title", e.currentTarget);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+          if (e.key === "Escape") {
+            // Restore original and cancel
+            e.currentTarget.innerText = card.title;
+            setEditing(null);
+          }
+        }}
         style={{
           fontFamily: "'Caveat', cursive",
           fontSize: "1.25rem",
@@ -252,23 +331,82 @@ export default function SceneCard({ card, onMove, onDelete }: Props) {
           lineHeight: 1.25,
           marginBottom: 8,
           marginTop: 0,
+          outline: editing === "title" ? "2px dashed rgba(0,0,0,0.25)" : "none",
+          outlineOffset: 2,
+          borderRadius: 2,
+          cursor: editing === "title" ? "text" : "inherit",
+          minHeight: "1.5em",
+          wordBreak: "break-word",
         }}
       >
         {card.title}
       </h3>
 
-      {/* Description — Caveat handwritten font */}
+      {/* Description — Caveat handwritten font, double-click to edit */}
       <p
+        ref={descRef}
+        contentEditable={editing === "description"}
+        suppressContentEditableWarning
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          setEditing("description");
+        }}
+        onPointerDown={(e) => {
+          if (editing === "description") {
+            e.stopPropagation();
+            return;
+          }
+        }}
+        onBlur={(e) => {
+          if (editing === "description") commitEdit("description", e.currentTarget);
+        }}
+        onKeyDown={(e) => {
+          // Shift+Enter or Ctrl+Enter commits; plain Escape cancels
+          if ((e.key === "Enter" && (e.shiftKey || e.ctrlKey)) || e.key === "Escape") {
+            if (e.key === "Escape") {
+              e.currentTarget.innerText = card.description;
+              setEditing(null);
+            } else {
+              e.currentTarget.blur();
+            }
+            e.preventDefault();
+          }
+        }}
         style={{
           fontFamily: "'Caveat', cursive",
           fontSize: "1rem",
           color: "#4b5563",
           lineHeight: 1.4,
           margin: 0,
+          outline: editing === "description" ? "2px dashed rgba(0,0,0,0.25)" : "none",
+          outlineOffset: 2,
+          borderRadius: 2,
+          cursor: editing === "description" ? "text" : "inherit",
+          minHeight: "1.2em",
+          wordBreak: "break-word",
+          whiteSpace: "pre-wrap",
         }}
       >
         {card.description}
       </p>
+
+      {/* Edit hint — shown on hover when not dragging */}
+      {hovered && !dragging && !editing && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 4,
+            right: 6,
+            fontSize: 8,
+            color: "rgba(0,0,0,0.3)",
+            fontFamily: "'Lato', sans-serif",
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          dbl-click to edit
+        </div>
+      )}
     </div>
   );
 }
