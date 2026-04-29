@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+/* Reset default body margin/padding in case Tailwind base resets vary */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
