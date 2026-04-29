@@ -1,6 +1,15 @@
+"use client";
+
+import { useState, useCallback } from "react";
 import Corkboard from "@/components/Corkboard";
 
 export default function Home() {
+  const [sceneCount, setSceneCount] = useState<number | null>(null);
+
+  const handleScenesChange = useCallback((count: number) => {
+    setSceneCount(count);
+  }, []);
+
   return (
     <>
       {/* Toolbar */}
@@ -49,9 +58,16 @@ export default function Home() {
           <span>Untitled Story</span>
         </div>
 
+        {/* Add Scene button */}
+        <AddSceneToolbarButton />
+
         {/* Scene count + act badge */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
-          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>11 scenes</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+          {sceneCount !== null && (
+            <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+              {sceneCount} {sceneCount === 1 ? "scene" : "scenes"}
+            </span>
+          )}
           <span
             style={{
               background: "#d4873a",
@@ -85,8 +101,49 @@ export default function Home() {
 
       {/* Corkboard — fills remaining viewport height */}
       <main style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-        <Corkboard />
+        <Corkboard onScenesChange={handleScenesChange} />
       </main>
     </>
+  );
+}
+
+/**
+ * The toolbar "Add Scene" button.
+ * It dispatches a custom event that Corkboard listens to — this keeps the
+ * toolbar decoupled from the Corkboard without needing a global store.
+ * NOTE: The floating "+" FAB on the board also works; this toolbar button
+ * triggers the same modal via a CustomEvent.
+ */
+function AddSceneToolbarButton() {
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent("story-map:open-add"))}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        background: "rgba(255,255,255,0.1)",
+        border: "none",
+        borderRadius: 6,
+        color: "white",
+        fontSize: 12,
+        fontWeight: 700,
+        fontFamily: "'Lato', sans-serif",
+        padding: "6px 12px",
+        cursor: "pointer",
+        transition: "background 0.15s",
+      }}
+      onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.2)")}
+      onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.1)")}
+    >
+      <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
+        <path
+          fillRule="evenodd"
+          d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+          clipRule="evenodd"
+        />
+      </svg>
+      Add Scene
+    </button>
   );
 }

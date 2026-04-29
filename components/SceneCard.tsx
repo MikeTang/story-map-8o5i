@@ -21,29 +21,33 @@ export interface SceneCardData {
 
 // Exact colors from the design mockup
 const COLOR_MAP: Record<CardColor, string> = {
-  yellow: "#fef3a0",
-  blue: "#c5dff8",
-  green: "#c8f0c0",
-  pink: "#f9d0d0",
-  peach: "#fddbb8",
+  yellow:   "#fef3a0",
+  blue:     "#c5dff8",
+  green:    "#c8f0c0",
+  pink:     "#f9d0d0",
+  peach:    "#fddbb8",
   lavender: "#ddd0f7",
 };
 
 interface Props {
   card: SceneCardData;
   onMove: (id: string, x: number, y: number) => void;
+  onDelete?: (id: string) => void;
 }
 
-export default function SceneCard({ card, onMove }: Props) {
-  const [pos, setPos] = useState({ x: card.x, y: card.y });
+export default function SceneCard({ card, onMove, onDelete }: Props) {
+  const [pos, setPos]         = useState({ x: card.x, y: card.y });
   const [dragging, setDragging] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [hovered, setHovered]   = useState(false);
   const dragOrigin = useRef<{
     ptrX: number;
     ptrY: number;
     cardX: number;
     cardY: number;
   } | null>(null);
+
+  // Track whether the pointer actually moved (to distinguish click from drag)
+  const didMove = useRef(false);
 
   // Sync position if parent updates the card data (e.g. initial load)
   useEffect(() => {
@@ -54,6 +58,7 @@ export default function SceneCard({ card, onMove }: Props) {
     (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       e.currentTarget.setPointerCapture(e.pointerId);
+      didMove.current = false;
       dragOrigin.current = {
         ptrX: e.clientX,
         ptrY: e.clientY,
@@ -69,6 +74,7 @@ export default function SceneCard({ card, onMove }: Props) {
     if (!dragOrigin.current) return;
     const dx = e.clientX - dragOrigin.current.ptrX;
     const dy = e.clientY - dragOrigin.current.ptrY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didMove.current = true;
     setPos({ x: dragOrigin.current.cardX + dx, y: dragOrigin.current.cardY + dy });
   }, []);
 
@@ -111,7 +117,7 @@ export default function SceneCard({ card, onMove }: Props) {
         borderRadius: 2,
         cursor: dragging ? "grabbing" : "grab",
         filter: shadow,
-        transition: "filter 0.15s ease",
+        transition: dragging ? "none" : "filter 0.15s ease",
         zIndex: dragging ? 100 : hovered ? 10 : 1,
         userSelect: "none",
         touchAction: "none",
@@ -162,6 +168,39 @@ export default function SceneCard({ card, onMove }: Props) {
             zIndex: 2,
           }}
         />
+      )}
+
+      {/* Delete button — visible on hover, positioned top-right */}
+      {onDelete && hovered && !dragging && (
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(card.id);
+          }}
+          aria-label="Delete scene"
+          style={{
+            position: "absolute",
+            top: 4,
+            right: 4,
+            width: 18,
+            height: 18,
+            borderRadius: "50%",
+            background: "rgba(0,0,0,0.18)",
+            border: "none",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "rgba(0,0,0,0.6)",
+            fontSize: 13,
+            lineHeight: 1,
+            zIndex: 20,
+            padding: 0,
+          }}
+        >
+          ×
+        </button>
       )}
 
       {/* Header: scene number + label */}
@@ -224,7 +263,7 @@ export default function SceneCard({ card, onMove }: Props) {
           fontFamily: "'Caveat', cursive",
           fontSize: "1rem",
           color: "#4b5563",
-          lineHeight: 1.35,
+          lineHeight: 1.4,
           margin: 0,
         }}
       >
