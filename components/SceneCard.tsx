@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type CardColor = "yellow" | "blue" | "green" | "pink" | "peach" | "lavender";
 export type PinStyle = "pin" | "tape";
@@ -19,6 +19,7 @@ export interface SceneCardData {
   y: number;
 }
 
+// Exact colors from the design mockup
 const COLOR_MAP: Record<CardColor, string> = {
   yellow: "#fef3a0",
   blue: "#c5dff8",
@@ -34,23 +35,35 @@ interface Props {
 }
 
 export default function SceneCard({ card, onMove }: Props) {
-  // Track drag state locally; persist position via onMove on pointer-up.
   const [pos, setPos] = useState({ x: card.x, y: card.y });
   const [dragging, setDragging] = useState(false);
-  const dragOrigin = useRef<{ ptrX: number; ptrY: number; cardX: number; cardY: number } | null>(null);
+  const [hovered, setHovered] = useState(false);
+  const dragOrigin = useRef<{
+    ptrX: number;
+    ptrY: number;
+    cardX: number;
+    cardY: number;
+  } | null>(null);
 
-  // Keep pos in sync if card prop changes externally (e.g. initial load from storage)
+  // Sync position if parent updates the card data (e.g. initial load)
   useEffect(() => {
     setPos({ x: card.x, y: card.y });
   }, [card.x, card.y]);
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    // Only primary button
-    if (e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragOrigin.current = { ptrX: e.clientX, ptrY: e.clientY, cardX: pos.x, cardY: pos.y };
-    setDragging(true);
-  }, [pos]);
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragOrigin.current = {
+        ptrX: e.clientX,
+        ptrY: e.clientY,
+        cardX: pos.x,
+        cardY: pos.y,
+      };
+      setDragging(true);
+    },
+    [pos]
+  );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragOrigin.current) return;
@@ -59,45 +72,52 @@ export default function SceneCard({ card, onMove }: Props) {
     setPos({ x: dragOrigin.current.cardX + dx, y: dragOrigin.current.cardY + dy });
   }, []);
 
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    if (!dragOrigin.current) return;
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    const dx = e.clientX - dragOrigin.current.ptrX;
-    const dy = e.clientY - dragOrigin.current.ptrY;
-    const finalX = dragOrigin.current.cardX + dx;
-    const finalY = dragOrigin.current.cardY + dy;
-    dragOrigin.current = null;
-    setDragging(false);
-    onMove(card.id, finalX, finalY);
-  }, [card.id, onMove]);
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragOrigin.current) return;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      const dx = e.clientX - dragOrigin.current.ptrX;
+      const dy = e.clientY - dragOrigin.current.ptrY;
+      const finalX = dragOrigin.current.cardX + dx;
+      const finalY = dragOrigin.current.cardY + dy;
+      dragOrigin.current = null;
+      setDragging(false);
+      onMove(card.id, finalX, finalY);
+    },
+    [card.id, onMove]
+  );
 
-  const bg = COLOR_MAP[card.color];
+  const shadow = dragging
+    ? "drop-shadow(6px 12px 20px rgba(0,0,0,0.45))"
+    : hovered
+    ? "drop-shadow(4px 8px 16px rgba(0,0,0,0.4))"
+    : "drop-shadow(2px 4px 8px rgba(0,0,0,0.3))";
 
   return (
     <div
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       style={{
         position: "absolute",
         left: pos.x,
         top: pos.y,
         width: 192,
         transform: `rotate(${card.rotation}deg)`,
-        backgroundColor: bg,
+        backgroundColor: COLOR_MAP[card.color],
         padding: "18px 14px 14px",
-        borderRadius: "2px",
+        borderRadius: 2,
         cursor: dragging ? "grabbing" : "grab",
-        filter: dragging
-          ? "drop-shadow(6px 12px 20px rgba(0,0,0,0.45))"
-          : "drop-shadow(2px 4px 8px rgba(0,0,0,0.3))",
-        transition: dragging ? "filter 0.1s ease" : "filter 0.15s ease",
-        zIndex: dragging ? 100 : 1,
+        filter: shadow,
+        transition: "filter 0.15s ease",
+        zIndex: dragging ? 100 : hovered ? 10 : 1,
         userSelect: "none",
         touchAction: "none",
       }}
     >
-      {/* Pin or tape */}
+      {/* Pin or tape fastener */}
       {card.pinStyle === "pin" ? (
         <div
           style={{
@@ -113,6 +133,7 @@ export default function SceneCard({ card, onMove }: Props) {
             boxShadow: "1px 1px 3px rgba(0,0,0,0.4)",
           }}
         >
+          {/* Pin highlight */}
           <div
             style={{
               position: "absolute",
@@ -126,6 +147,7 @@ export default function SceneCard({ card, onMove }: Props) {
           />
         </div>
       ) : (
+        /* Tape */
         <div
           style={{
             position: "absolute",
@@ -142,8 +164,15 @@ export default function SceneCard({ card, onMove }: Props) {
         />
       )}
 
-      {/* Header row */}
-      <div style={{ marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      {/* Header: scene number + label */}
+      <div
+        style={{
+          marginBottom: 4,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
         <span
           style={{
             display: "inline-block",
@@ -174,7 +203,7 @@ export default function SceneCard({ card, onMove }: Props) {
         </span>
       </div>
 
-      {/* Title */}
+      {/* Title — Caveat handwritten font */}
       <h3
         style={{
           fontFamily: "'Caveat', cursive",
@@ -183,18 +212,20 @@ export default function SceneCard({ card, onMove }: Props) {
           color: "#1f2937",
           lineHeight: 1.25,
           marginBottom: 8,
+          marginTop: 0,
         }}
       >
         {card.title}
       </h3>
 
-      {/* Description */}
+      {/* Description — Caveat handwritten font */}
       <p
         style={{
           fontFamily: "'Caveat', cursive",
           fontSize: "1rem",
           color: "#4b5563",
           lineHeight: 1.35,
+          margin: 0,
         }}
       >
         {card.description}
