@@ -54,6 +54,9 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
   // Track whether the pointer actually moved (to distinguish click from drag)
   const didMove = useRef(false);
 
+  // Track whether a double-click just happened so we can suppress drag start
+  const doubleClickPending = useRef(false);
+
   const titleRef = useRef<HTMLHeadingElement>(null);
   const descRef  = useRef<HTMLParagraphElement>(null);
 
@@ -62,10 +65,12 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
     setPos({ x: card.x, y: card.y });
   }, [card.x, card.y]);
 
-  // When editing starts, focus the element and place cursor at end
+  // When editing starts, focus the element and place cursor at end.
+  // We also set innerText here so React's children don't fight us.
   useEffect(() => {
     if (editing === "title" && titleRef.current) {
       const el = titleRef.current;
+      el.innerText = card.title;
       el.focus();
       // Place caret at end
       const range = document.createRange();
@@ -76,6 +81,7 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
       sel?.addRange(range);
     } else if (editing === "description" && descRef.current) {
       const el = descRef.current;
+      el.innerText = card.description;
       el.focus();
       const range = document.createRange();
       range.selectNodeContents(el);
@@ -84,6 +90,8 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
       sel?.removeAllRanges();
       sel?.addRange(range);
     }
+    // intentionally only run when `editing` changes, not on every card prop change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
   // Commit a field value on blur
@@ -101,10 +109,13 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
     [card.id, card.title, card.description, onUpdate]
   );
 
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // If already editing a field, let pointer events pass to that field
+      // If we're editing any field, or a double-click just started an edit, skip drag
       if (editing) return;
+      if (doubleClickPending.current) return;
       if (e.button !== 0) return;
       e.currentTarget.setPointerCapture(e.pointerId);
       didMove.current = false;
@@ -142,6 +153,16 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
     [card.id, onMove]
   );
 
+  // Cancel drag if a double-click fires on the card root (editing takes priority)
+  const onDoubleClick = useCallback(() => {
+    // Abort any in-progress drag that started from the first click of the dbl-click
+    if (dragOrigin.current) {
+      dragOrigin.current = null;
+      setDragging(false);
+      setPos((p) => p); // no-op to flush
+    }
+  }, []);
+
   const shadow = dragging
     ? "drop-shadow(6px 12px 20px rgba(0,0,0,0.45))"
     : hovered
@@ -153,6 +174,7 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onDoubleClick={onDoubleClick}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       style={{
@@ -235,17 +257,17 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
             width: 18,
             height: 18,
             borderRadius: "50%",
-            background: "rgba(0,0,0,0.18)",
+            background: "rgba(0,0,0,0.15)",
             border: "none",
+            color: "rgba(0,0,0,0.5)",
+            fontSize: 13,
+            lineHeight: "18px",
+            textAlign: "center",
             cursor: "pointer",
+            padding: 0,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "rgba(0,0,0,0.6)",
-            fontSize: 13,
-            lineHeight: 1,
-            zIndex: 20,
-            padding: 0,
           }}
         >
           ×
@@ -299,15 +321,19 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
         suppressContentEditableWarning
         onDoubleClick={(e) => {
           e.stopPropagation();
+          // Mark that a double-click started so the card root doesn't re-enter drag
+          doubleClickPending.current = true;
+          // Abort any drag that started from the first pointerdown of this dblclick
+          dragOrigin.current = null;
+          setDragging(false);
           setEditing("title");
+          setTimeout(() => { doubleClickPending.current = false; }, 300);
         }}
         onPointerDown={(e) => {
-          // If already editing this field, let browser handle selection
+          // While editing this field, keep pointer events local (no drag)
           if (editing === "title") {
             e.stopPropagation();
-            return;
           }
-          // Otherwise let the card's drag handler take over (do nothing special)
         }}
         onBlur={(e) => {
           if (editing === "title") commitEdit("title", e.currentTarget);
@@ -339,7 +365,8 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
           wordBreak: "break-word",
         }}
       >
-        {card.title}
+        {/* Only render children when NOT editing — avoids React clobbering the live DOM */}
+        {editing !== "title" ? card.title : undefined}
       </h3>
 
       {/* Description — Caveat handwritten font, double-click to edit */}
@@ -349,27 +376,30 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
         suppressContentEditableWarning
         onDoubleClick={(e) => {
           e.stopPropagation();
+          doubleClickPending.current = true;
+          dragOrigin.current = null;
+          setDragging(false);
           setEditing("description");
+          setTimeout(() => { doubleClickPending.current = false; }, 300);
         }}
         onPointerDown={(e) => {
           if (editing === "description") {
             e.stopPropagation();
-            return;
           }
         }}
         onBlur={(e) => {
           if (editing === "description") commitEdit("description", e.currentTarget);
         }}
         onKeyDown={(e) => {
-          // Shift+Enter or Ctrl+Enter commits; plain Escape cancels
-          if ((e.key === "Enter" && (e.shiftKey || e.ctrlKey)) || e.key === "Escape") {
-            if (e.key === "Escape") {
-              e.currentTarget.innerText = card.description;
-              setEditing(null);
-            } else {
-              e.currentTarget.blur();
-            }
+          // Shift+Enter or Ctrl+Enter commits; Escape cancels; plain Enter = newline
+          if (e.key === "Escape") {
+            e.currentTarget.innerText = card.description;
+            setEditing(null);
+            return;
+          }
+          if (e.key === "Enter" && (e.shiftKey || e.ctrlKey)) {
             e.preventDefault();
+            e.currentTarget.blur();
           }
         }}
         style={{
@@ -387,10 +417,11 @@ export default function SceneCard({ card, onMove, onDelete, onUpdate }: Props) {
           whiteSpace: "pre-wrap",
         }}
       >
-        {card.description}
+        {/* Only render children when NOT editing */}
+        {editing !== "description" ? card.description : undefined}
       </p>
 
-      {/* Edit hint — shown on hover when not dragging */}
+      {/* Edit hint — shown on hover when not dragging or editing */}
       {hovered && !dragging && !editing && (
         <div
           style={{
