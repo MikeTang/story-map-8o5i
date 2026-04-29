@@ -86,6 +86,14 @@ export default function Corkboard({ onScenesChange }: Props) {
     });
   }, []);
 
+
+  const handleUpdate = useCallback(
+    (id: string, fields: Partial<Pick<SceneCardData, "title" | "description">>) => {
+      setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...fields } : c)));
+    },
+    []
+  );
+
   const handleAdd = useCallback(
     (title: string, description: string, color: CardColor) => {
       setCards((prev) => {
@@ -218,6 +226,7 @@ export default function Corkboard({ onScenesChange }: Props) {
               card={card}
               onMove={handleMove}
               onDelete={handleDelete}
+              onUpdate={handleUpdate}
             />
           ))}
       </div>
